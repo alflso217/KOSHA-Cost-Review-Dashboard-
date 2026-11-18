@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>비용지원 심사 통합 관리 대시보드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#eff6ff', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col font-sans">
+
+    <!-- 비밀번호 잠금 모달 -->
+    <div id="auth-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center">
+            <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900 mb-2">팀 대시보드 보안 인증</h2>
+            <p class="text-gray-500 text-sm mb-6">팀원들과 공유된 접속 비밀번호를 입력해주세요.<br>(초기 비밀번호: <strong>1234</strong>)</p>
+            <div class="space-y-4">
+                <input type="password" id="auth-password" placeholder="비밀번호 입력 (기본: 1234)" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none text-center tracking-widest text-lg">
+                <div id="auth-error" class="text-red-500 text-xs hidden">비밀번호가 올바르지 않습니다.</div>
+                <button type="button" onclick="tryLogin()" class="w-full py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/30">
+                    대시보드 입장하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 상단 헤더 -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-md">
+                    <i class="fa-solid fa-clipboard-check text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-gray-900 leading-tight">비용지원 심사 통합 관리 대시보드</h1>
+                    <p class="text-xs text-gray-500">일정·마감 알람 · 심사 기준 · 직종 관리</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button type="button" id="btn-open-urgent" class="relative px-3 py-2 bg-amber-50 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-100 transition flex items-center space-x-2 border border-amber-200">
+                    <i class="fa-solid fa-bell text-amber-500"></i>
+                    <span>마감 임박 알림</span>
+                    <span id="urgent-badge" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold hidden">0</span>
+                </button>
+                <button type="button" id="btn-open-schedule" class="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition shadow-sm flex items-center space-x-2">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>일정 등록</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 네비게이션 탭 -->
+    <nav class="bg-white border-b border-gray-200 shadow-xs">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8">
+            <button type="button" onclick="switchTab('calendar')" id="tab-btn-calendar" class="py-4 px-1 border-b-2 font-semibold text-sm transition text-blue-600 border-blue-600 flex items-center space-x-2">
+                <i class="fa-solid fa-calendar-days"></i>
+                <span>캘린더 & 일정</span>
+            </button>
+            <button type="button" onclick="switchTab('guidelines')" id="tab-btn-guidelines" class="py-4 px-1 border-b-2 font-medium text-sm transition text-gray-500 border-transparent hover:text-gray-700 flex items-center space-x-2">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <span>심사 유의사항·기준 검색</span>
+            </button>
+            <button type="button" onclick="switchTab('settings')" id="tab-btn-settings" class="py-4 px-1 border-b-2 font-medium text-sm transition text-gray-500 border-transparent hover:text-gray-700 flex items-center space-x-2">
+                <i class="fa-solid fa-gear"></i>
+                <span>설정 (직종·비밀번호 관리)</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- 메인 컨테이너 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+        
+        <!-- 긴급 알림 배너 -->
+        <div id="urgent-banner" class="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-xl shadow-xs flex items-center justify-between hidden">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-triangle-exclamation text-red-500 text-xl"></i>
+                <div>
+                    <h4 class="text-sm font-bold text-red-800">마감 임박 일정 알림</h4>
+                    <p id="urgent-banner-text" class="text-xs text-red-700 mt-0.5">3일 이내에 도래하는 마감 일정이 있습니다.</p>
+                </div>
+            </div>
+            <button type="button" id="btn-banner-urgent" class="px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition">확인하기</button>
+        </div>
+
+        <!-- 탭 1: 캘린더 및 일정 관리 -->
+        <div id="tab-calendar" class="space-y-6">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 id="calendar-title" class="text-xl font-bold text-gray-900">2026년 11월</h2>
+                    <div class="flex items-center space-x-2">
+                        <button type="button" onclick="moveMonth(-1)" class="p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition"><i class="fa-solid fa-chevron-left text-sm"></i></button>
+                        <button type="button" onclick="moveMonth(0)" class="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 transition">오늘</button>
+                        <button type="button" onclick="moveMonth(1)" class="p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition"><i class="fa-solid fa-chevron-right text-sm"></i></button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-7 gap-2 text-center font-semibold text-xs text-gray-500 mb-2">
+                    <div class="text-red-500">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div class="text-blue-500">토</div>
+                </div>
+                <div id="calendar-grid" class="grid grid-cols-7 gap-2"></div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-bold text-gray-900">등록된 전체 심사 마감 일정</h3>
+                    <div class="flex items-center space-x-2" id="filter-type-buttons"></div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 text-gray-500 text-xs uppercase bg-gray-50">
+                                <th class="py-3 px-4">지원 유형</th>
+                                <th class="py-3 px-4">일정 제목</th>
+                                <th class="py-3 px-4">신청 마감일</th>
+                                <th class="py-3 px-4">청구 마감일</th>
+                                <th class="py-3 px-4 text-center">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedule-table-body" class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 탭 2: 심사 유의사항·기준 검색 -->
+        <div id="tab-guidelines" class="space-y-6 hidden">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <div class="max-w-2xl mx-auto text-center mb-8">
+                    <h2 class="text-2xl font-bold text-gray-900 mb-2">검사 항목별 심사 유의사항 및 기준 검색</h2>
+                    <p class="text-gray-500 text-sm mb-6">소음, 분진, 교육 등 궁금한 키워드를 입력하시면 헷갈리기 쉬운 심사 포인트를 안내해 드립니다.</p>
+                    <div class="relative">
+                        <input type="text" id="guideline-search-input" placeholder="예: 소음, 분진, 특수건강진단, 승강기..." class="w-full pl-12 pr-4 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-sm text-base">
+                        <i class="fa-solid fa-magnifying-glass absolute left-4 top-4 text-gray-400 text-lg"></i>
+                    </div>
+                    <div class="flex flex-wrap justify-center gap-2 mt-4" id="quick-search-tags">
+                        <button type="button" onclick="setQuickSearch('소음')" class="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition">#소음</button>
+                        <button type="button" onclick="setQuickSearch('분진')" class="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition">#분진</button>
+                        <button type="button" onclick="setQuickSearch('특수건강진단')" class="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition">#특수건강진단</button>
+                        <button type="button" onclick="setQuickSearch('보건교육')" class="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition">#보건교육</button>
+                    </div>
+                </div>
+                <div id="guidelines-card-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+            </div>
+        </div>
+
+        <!-- 탭 3: 설정 (직종 및 비밀번호 관리) -->
+        <div id="tab-settings" class="space-y-6 hidden">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 max-w-3xl mx-auto space-y-8">
+                <!-- 지원 유형 관리 -->
+                <div>
+                    <div class="flex items-center justify-between mb-4 border-b border-gray-200 pb-3">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-900">지원 유형 (직종) 커스텀 관리</h2>
+                            <p class="text-gray-500 text-sm">지원 유형을 개수 제한 없이 추가하고 원하는 색상을 직접 지정하세요.</p>
+                        </div>
+                        <button type="button" id="btn-open-type" class="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition flex items-center space-x-2">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>새 지원 유형 추가</span>
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-200 text-gray-500 text-xs uppercase bg-gray-50">
+                                    <th class="py-3 px-4">색상 미리보기</th>
+                                    <th class="py-3 px-4">유형 명칭</th>
+                                    <th class="py-3 px-4">코드 ID</th>
+                                    <th class="py-3 px-4 text-center">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="type-table-body" class="divide-y divide-gray-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 비밀번호 변경 설정 -->
+                <div class="border-t border-gray-200 pt-6">
+                    <h3 class="text-lg font-bold text-gray-900 mb-2">대시보드 접속 비밀번호 변경</h3>
+                    <p class="text-gray-500 text-sm mb-4">팀원들과 공유할 새로운 비밀번호를 설정합니다.</p>
+                    <div class="space-y-4 max-w-md">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">새 비밀번호 입력</label>
+                            <input type="password" id="new-password-input" placeholder="새 비밀번호 입력" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+                        </div>
+                        <button type="button" onclick="handlePasswordChange()" class="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition">비밀번호 변경 저장</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 모달: 일정 추가/수정 -->
+    <div id="schedule-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
+            <div class="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
+                <h3 id="schedule-modal-title" class="text-lg font-bold text-gray-900">새 심사 마감 일정 등록</h3>
+                <button type="button" id="btn-close-schedule" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-4">
+                <input type="hidden" id="schedule-edit-id">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">지원 유형 선택</label>
+                    <select id="schedule-type-select" class="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">일정 제목</label>
+                    <input type="text" id="schedule-title-input" placeholder="일정 제목을 입력하세요" class="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">신청 마감일</label>
+                        <input type="date" id="schedule-apply-date" class="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">청구 마감일</label>
+                        <input type="date" id="schedule-claim-date" class="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">비고 및 메모</label>
+                    <textarea id="schedule-desc-input" rows="3" placeholder="추가 참고 사항을 입력하세요" class="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"></textarea>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" id="btn-cancel-schedule" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-100 transition">취소</button>
+                    <button type="button" id="btn-save-schedule" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition">저장하기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 모달: 지원 유형 추가/수정 -->
+    <div id="type-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div class="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
+                <h3 id="type-modal-title" class="text-lg font-bold text-gray-900">지원 유형 추가</h3>
+                <button type="button" id="btn-close-type" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-4">
+                <input type="hidden" id="type-edit-id">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">유형 명칭</label>
+                    <input type="text" id="type-name-input" placeholder="유형 이름을 입력하세요" class="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">테마 색상 선택</label>
+                    <div class="flex items-center space-x-3">
+                        <input type="color" id="type-color-input" value="#3b82f6" class="w-12 h-10 border border-gray-300 rounded-lg cursor-pointer">
+                        <span id="type-color-text" class="text-xs text-gray-500 font-mono">#3b82f6</span>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" id="btn-cancel-type" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-100 transition">취소</button>
+                    <button type="button" id="btn-save-type" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 모달: 심사 기준 상세 보기 -->
+    <div id="guideline-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
+            <div class="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
+                <h3 id="modal-g-title" class="text-lg font-bold text-gray-900">심사 기준 상세</h3>
+                <button type="button" id="btn-close-guideline" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-4 text-sm">
+                <div>
+                    <span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded mb-1" id="modal-g-category">카테고리</span>
+                    <h4 id="modal-g-subtitle" class="font-bold text-base text-gray-800"></h4>
+                </div>
+                <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r-lg">
+                    <h5 class="font-bold text-amber-800 text-xs mb-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i> 헷갈리기 쉬운 심사 포인트</h5>
+                    <p id="modal-g-point" class="text-amber-900 text-xs leading-relaxed"></p>
+                </div>
+                <div>
+                    <h5 class="font-bold text-gray-700 text-xs mb-1">필수 증빙 서류</h5>
+                    <p id="modal-g-docs" class="text-gray-600 text-xs leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-200"></p>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button type="button" id="btn-close-guideline-bottom" class="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 모달: 마감 임박 알림 모달 -->
+    <div id="urgent-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
+            <div class="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
+                <h3 class="text-lg font-bold text-gray-900 flex items-center"><i class="fa-solid fa-bell text-amber-500 mr-2"></i> 마감 임박 일정 (3일 이내)</h3>
+                <button type="button" id="btn-close-urgent" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="urgent-modal-list" class="space-y-3 max-h-96 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <!-- 자바스크립트 로직 -->
+    <script>
+        let appPassword = localStorage.getItem('app_password') || '1234';
+
+        let supportTypes = JSON.parse(localStorage.getItem('support_types')) || [
+            { id: 'type_1', name: '건설일용직', color: '#3b82f6' },
+            { id: 'type_2', name: '50인미만', color: '#10b981' },
+            { id: 'type_3', name: '공동주택', color: '#f59e0b' }
+        ];
+
+        let schedules = JSON.parse(localStorage.getItem('support_schedules')) || [
+            { id: 1, typeId: 'type_1', title: '건설일용직 3분기 지원금 신청 마감', applyDate: '2026-11-20', claimDate: '2026-11-25', desc: '고용보험 피보험 자격 확인 철저' },
+            { id: 2, typeId: 'type_2', title: '50인미만 소규모 사업장 건강진단 신청', applyDate: '2026-11-22', claimDate: '2026-11-30', desc: '특수건강진단 비용 청구 동시 진행' },
+            { id: 3, typeId: 'type_3', title: '공동주택 공용부 보건관리 청구 마감', applyDate: '2026-12-05', claimDate: '2026-12-10', desc: '입주민 대표회의 의사록 첨부 필수' }
+        ];
+
+        let guidelinesData = [
+            { id: 1, category: '소음', title: '소음업무 작업환경측정 및 유의사항', point: '85dB 이상 소음 공정은 6개월 주기로 측정되었는지 확인. 청력보존프로그램 수립 여부 필수 검토.', docs: '작업환경측정결과표, 소음대책 수립 서류, 보호구 지급 대장' },
+            { id: 2, category: '분진', title: '광물성 분진 및 용접 흄 심사 기준', point: '유리규산 함유 공정의 경우 노출기준 초과 여부와 국소배기장치 적정 풍속 확인.', docs: '국소배기장치 성능검사 성적서, 방진마스크 지급 및 착용 확인증' },
+            { id: 3, category: '특수건강진단', title: '배치전 및 정기 건강진단 비용 지원 심사', point: '법정 주기 내에 수검하였는지 확인. 지연 수검 시 지원금 삭감 또는 제외 사유 발생.', docs: '특수건강진단 결과표, 송부서, 계산서 및 사업주 납부 영수증' },
+            { id: 4, category: '보건교육', title: '정기 안전보건교육 실시 기준 확인', point: '관리감독자 교육 및 근로자 정기교육 시간(월 2시간 이상) 충족 여부 철저 대조.', docs: '교육일지, 참석자 서명부, 교육 사진 또는 교재 사본' },
+            { id: 5, category: '승강기/기타', title: '휴게시설 설치 및 관리비용 지원 심사', point: '남녀 휴게시설 분리 설치 여부, 냉난방기 및 환기시설 구비 기준 엄격 심사.', docs: '휴게시설 전경 사진, 설치비용 영수증, 건축물대장' }
+        ];
+
+        let currentYear = 2026;
+        let currentMonth = 10; // 11월
+        let activeFilterType = 'all';
+
+        // 비밀번호 로그인 처리
+        function tryLogin() {
+            const inputEl = document.getElementById('auth-password');
+            const errorEl = document.getElementById('auth-error');
+            const modalEl = document.getElementById('auth-modal');
+
+            if (!inputEl) return;
+            const inputVal = inputEl.value.trim();
+
+            if (inputVal === appPassword) {
+                if (modalEl) modalEl.classList.add('hidden');
+                sessionStorage.setItem('is_authenticated', 'true');
+            } else {
+                if (errorEl) errorEl.classList.remove('hidden');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // 이미 로그인 상태인지 확인
+            if (sessionStorage.getItem('is_authenticated') === 'true') {
+                const modalEl = document.getElementById('auth-modal');
+                if (modalEl) modalEl.classList.add('hidden');
+            }
+
+            renderAll();
+
+            // 엔터키로 로그인 지원
+            const pwInput = document.getElementById('auth-password');
+            if (pwInput) {
+                pwInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') tryLogin();
+                });
+            }
+
+            // 이벤트 연결
+            document.getElementById('btn-open-urgent').addEventListener('click', openUrgentModal);
+            document.getElementById('btn-banner-urgent').addEventListener('click', openUrgentModal);
+            document.getElementById('btn-open-schedule').addEventListener('click', () => openScheduleModal());
+            document.getElementById('btn-close-schedule').addEventListener('click', closeScheduleModal);
+            document.getElementById('btn-cancel-schedule').addEventListener('click', closeScheduleModal);
+            document.getElementById('btn-save-schedule').addEventListener('click', saveSchedule);
+
+            document.getElementById('btn-open-type').addEventListener('click', () => openTypeModal());
+            document.getElementById('btn-close-type').addEventListener('click', closeTypeModal);
+            document.getElementById('btn-cancel-type').addEventListener('click', closeTypeModal);
+            document.getElementById('btn-save-type').addEventListener('click', saveType);
+
+            document.getElementById('btn-close-guideline').addEventListener('click', closeGuidelineModal);
+            document.getElementById('btn-close-guideline-bottom').addEventListener('click', closeGuidelineModal);
+            document.getElementById('btn-close-urgent').addEventListener('click', closeUrgentModal);
+
+            const searchInput = document.getElementById('guideline-search-input');
+            if (searchInput) searchInput.addEventListener('input', filterGuidelines);
+
+            const colorInput = document.getElementById('type-color-input');
+            if (colorInput) {
+                colorInput.addEventListener('input', (e) => {
+                    const colorText = document.getElementById('type-color-text');
+                    if (colorText) colorText.innerText = e.target.value;
+                });
+            }
+        });
+
+        function renderAll() {
+            renderCalendar();
+            renderScheduleTable();
+            renderFilterButtons();
+            renderGuidelines(guidelinesData);
+            renderTypeTable();
+            updateScheduleTypeSelect();
+            checkUrgentSchedules();
+        }
+
+        function switchTab(tabName) {
+            ['calendar', 'guidelines', 'settings'].forEach(t => {
+                const tabEl = document.getElementById(`tab-${t}`);
+                const btnEl = document.getElementById(`tab-btn-${t}`);
+                if (tabEl) tabEl.classList.add('hidden');
+                if (btnEl) {
+                    btnEl.classList.remove('text-blue-600', 'border-blue-600');
+                    btnEl.classList.add('text-gray-500', 'border-transparent');
+                }
+            });
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+            if (activeTab) activeTab.classList.remove('hidden');
+            if (activeBtn) {
+                activeBtn.classList.add('text-blue-600', 'border-blue-600');
+                activeBtn.classList.remove('text-gray-500', 'border-transparent');
+            }
+        }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendar-grid');
+            const titleEl = document.getElementById('calendar-title');
+            if (!grid || !titleEl) return;
+
+            grid.innerHTML = '';
+            titleEl.innerText = `${currentYear}년 ${currentMonth + 1}월`;
+
+            const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            const lastDate = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+            for (let i = 0; i < firstDay; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.className = 'h-28 bg-gray-50/50 rounded-xl border border-transparent';
+                grid.appendChild(emptyCell);
+            }
+
+            for (let day = 1; day <= lastDate; day++) {
+                const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const cell = document.createElement('div');
+                cell.className = 'h-28 bg-white border border-gray-200 rounded-xl p-2 flex flex-col justify-between overflow-y-auto hover:border-blue-300 transition';
+                
+                const dayHeader = document.createElement('div');
+                dayHeader.className = 'flex items-center justify-between text-xs font-bold text-gray-700';
+                dayHeader.innerHTML = `<span>${day}</span>`;
+                cell.appendChild(dayHeader);
+
+                const eventsDiv = document.createElement('div');
+                eventsDiv.className = 'space-y-1 mt-1 flex-1';
+
+                schedules.forEach(sch => {
+                    if (activeFilterType !== 'all' && sch.typeId !== activeFilterType) return;
+                    if (sch.applyDate === dateStr || sch.claimDate === dateStr) {
+                        const typeObj = supportTypes.find(t => t.id === sch.typeId) || { name: '기타', color: '#6b7280' };
+                        const isApply = sch.applyDate === dateStr;
+                        const badge = document.createElement('div');
+                        badge.className = 'text-[10px] px-1.5 py-0.5 rounded text-white truncate font-medium';
+                        badge.style.backgroundColor = typeObj.color;
+                        badge.title = sch.title;
+                        badge.innerText = `${isApply ? '[신청]' : '[청구]'} ${sch.title}`;
+                        eventsDiv.appendChild(badge);
+                    }
+                });
+
+                cell.appendChild(eventsDiv);
+                grid.appendChild(cell);
+            }
+        }
+
+        function moveMonth(dir) {
+            if (dir === 0) {
+                const now = new Date();
+                currentYear = now.getFullYear();
+                currentMonth = now.getMonth();
+            } else {
+                currentMonth += dir;
+                if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+                else if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+            }
+            renderCalendar();
+        }
+
+        function renderScheduleTable() {
+            const tbody = document.getElementById('schedule-table-body');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            
+            const filtered = schedules.filter(s => activeFilterType === 'all' || s.typeId === activeFilterType);
+            
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-gray-400">등록된 일정이 없습니다.</td></tr>`;
+                return;
+            }
+
+            filtered.forEach(sch => {
+                const typeObj = supportTypes.find(t => t.id === sch.typeId) || { name: '기타', color: '#6b7280' };
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50 transition border-b border-gray-100';
+                tr.innerHTML = `
+                    <td class="py-3 px-4"><span class="px-2 py-1 rounded text-xs font-semibold text-white" style="background-color: ${typeObj.color}">${typeObj.name}</span></td>
+                    <td class="py-3 px-4 font-medium text-gray-900">${sch.title}<div class="text-xs text-gray-400 font-normal">${sch.desc || ''}</div></td>
+                    <td class="py-3 px-4 text-blue-600 font-medium">${sch.applyDate}</td>
+                    <td class="py-3 px-4 text-purple-600 font-medium">${sch.claimDate}</td>
+                    <td class="py-3 px-4 text-center space-x-2">
+                        <button type="button" onclick="editSchedule(${sch.id})" class="text-gray-500 hover:text-blue-600"><i class="fa-solid fa-pen"></i></button>
+                        <button type="button" onclick="deleteSchedule(${sch.id})" class="text-gray-500 hover:text-red-600"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderFilterButtons() {
+            const container = document.getElementById('filter-type-buttons');
+            if (!container) return;
+            container.innerHTML = `<button type="button" onclick="filterScheduleType('all')" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeFilterType === 'all' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">전체보기</button>`;
+            supportTypes.forEach(t => {
+                const isActive = activeFilterType === t.id;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${isActive ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`;
+                if (isActive) btn.style.backgroundColor = t.color;
+                btn.innerText = t.name;
+                btn.onclick = () => filterScheduleType(t.id);
+                container.appendChild(btn);
+            });
+        }
+
+        function filterScheduleType(typeId) {
+            activeFilterType = typeId;
+            renderCalendar();
+            renderScheduleTable();
+            renderFilterButtons();
+        }
+
+        function checkUrgentSchedules() {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const urgentList = [];
+
+            schedules.forEach(sch => {
+                [sch.applyDate, sch.claimDate].forEach((dStr, idx) => {
+                    const dDate = new Date(dStr);
+                    dDate.setHours(0,0,0,0);
+                    const diffDays = Math.ceil((dDate - today) / (1000 * 60 * 60 * 24));
+                    if (diffDays >= 0 && diffDays <= 3) {
+                        urgentList.push({ ...sch, targetType: idx === 0 ? '신청 마감' : '청구 마감', targetDate: dStr, leftDays: diffDays });
+                    }
+                });
+            });
+
+            const badge = document.getElementById('urgent-badge');
+            const banner = document.getElementById('urgent-banner');
+            const bannerText = document.getElementById('urgent-banner-text');
+
+            if (urgentList.length > 0) {
+                if (badge) { badge.innerText = urgentList.length; badge.classList.remove('hidden'); }
+                if (banner) banner.classList.remove('hidden');
+                if (bannerText) bannerText.innerText = `총 ${urgentList.length}건의 마감 임박 일정이 있습니다. (D-${urgentList[0].leftDays})`;
+            } else {
+                if (badge) badge.classList.add('hidden');
+                if (banner) banner.classList.add('hidden');
+            }
+
+            window.cachedUrgentList = urgentList;
+        }
+
+        function openUrgentModal() {
+            const listContainer = document.getElementById('urgent-modal-list');
+            if (!listContainer) return;
+            listContainer.innerHTML = '';
+            const list = window.cachedUrgentList || [];
+
+            if (list.length === 0) {
+                listContainer.innerHTML = `<p class="text-center text-gray-400 py-6">현재 3일 이내 마감 임박 일정이 없습니다.</p>`;
+            } else {
+                list.forEach(item => {
+                    const typeObj = supportTypes.find(t => t.id === item.typeId) || { name: '기타', color: '#6b7280' };
+                    const div = document.createElement('div');
+                    div.className = 'p-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between';
+                    div.innerHTML = `
+                        <div>
+                            <div class="flex items-center space-x-2 mb-1">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold text-white" style="background-color: ${typeObj.color}">${typeObj.name}</span>
+                                <span class="text-xs font-bold text-red-600">${item.targetType} (${item.targetDate})</span>
+                            </div>
+                            <h4 class="font-bold text-gray-900 text-sm">${item.title}</h4>
+                        </div>
+                        <span class="px-2.5 py-1 bg-red-600 text-white font-bold text-xs rounded-lg">D-${item.leftDays}</span>
+                    `;
+                    listContainer.appendChild(div);
+                });
+            }
+            document.getElementById('urgent-modal').classList.remove('hidden');
+        }
+        function closeUrgentModal() { document.getElementById('urgent-modal').classList.add('hidden'); }
+
+        function openScheduleModal(editId = null) {
+            document.getElementById('schedule-edit-id').value = '';
+            document.getElementById('schedule-modal-title').innerText = '새 심사 마감 일정 등록';
+            document.getElementById('schedule-title-input').value = '';
+            document.getElementById('schedule-apply-date').value = '';
+            document.getElementById('schedule-claim-date').value = '';
+            document.getElementById('schedule-desc-input').value = '';
+
+            if (editId) {
+                const sch = schedules.find(s => s.id === editId);
+                if (sch) {
+                    document.getElementById('schedule-edit-id').value = sch.id;
+                    document.getElementById('schedule-modal-title').innerText = '심사 마감 일정 수정';
+                    document.getElementById('schedule-type-select').value = sch.typeId;
+                    document.getElementById('schedule-title-input').value = sch.title;
+                    document.getElementById('schedule-apply-date').value = sch.applyDate;
+                    document.getElementById('schedule-claim-date').value = sch.claimDate;
+                    document.getElementById('schedule-desc-input').value = sch.desc || '';
+                }
+            }
+            document.getElementById('schedule-modal').classList.remove('hidden');
+        }
+        function closeScheduleModal() { document.getElementById('schedule-modal').classList.add('hidden'); }
+
+        function updateScheduleTypeSelect() {
+            const select = document.getElementById('schedule-type-select');
+            if (!select) return;
+            select.innerHTML = '';
+            supportTypes.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.innerText = t.name;
+                select.appendChild(opt);
+            });
+        }
+
+        function saveSchedule() {
+            const editId = document.getElementById('schedule-edit-id').value;
+            const title = document.getElementById('schedule-title-input').value.trim();
+            const applyDate = document.getElementById('schedule-apply-date').value;
+            const claimDate = document.getElementById('schedule-claim-date').value;
+
+            if (!title || !applyDate || !claimDate) {
+                alert('제목과 마감일(신청/청구)을 모두 입력해주세요.');
+                return;
+            }
+
+            const data = {
+                typeId: document.getElementById('schedule-type-select').value,
+                title: title,
+                applyDate: applyDate,
+                claimDate: claimDate,
+                desc: document.getElementById('schedule-desc-input').value
+            };
+
+            if (editId) {
+                const idx = schedules.findIndex(s => s.id == editId);
+                if (idx !== -1) { schedules[idx] = { ...schedules[idx], ...data }; }
+            } else {
+                const newSch = { id: Date.now(), ...data };
+                schedules.push(newSch);
+            }
+
+            localStorage.setItem('support_schedules', JSON.stringify(schedules));
+            closeScheduleModal();
+            renderAll();
+        }
+
+        function editSchedule(id) { openScheduleModal(id); }
+        function deleteSchedule(id) {
+            if (confirm('해당 일정을 삭제하시겠습니까?')) {
+                schedules = schedules.filter(s => s.id !== id);
+                localStorage.setItem('support_schedules', JSON.stringify(schedules));
+                renderAll();
+            }
+        }
+
+        function renderGuidelines(list) {
+            const grid = document.getElementById('guidelines-card-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            if (list.length === 0) {
+                grid.innerHTML = `<div class="col-span-full py-8 text-center text-gray-400">검색 결과가 없습니다.</div>`;
+                return;
+            }
+            list.forEach(g => {
+                const card = document.createElement('div');
+                card.className = 'bg-white border border-gray-200 rounded-xl p-5 hover:border-blue-500 transition cursor-pointer shadow-xs flex flex-col justify-between';
+                card.onclick = () => openGuidelineModal(g);
+                card.innerHTML = `
+                    <div>
+                        <span class="px-2.5 py-1 bg-blue-50 text-blue-600 text-xs font-semibold rounded-lg mb-2 inline-block">${g.category}</span>
+                        <h4 class="font-bold text-gray-900 text-base mb-2">${g.title}</h4>
+                        <p class="text-xs text-gray-500 line-clamp-2">${g.point}</p>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-blue-600 font-medium">
+                        <span>상세 기준 확인하기</span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function filterGuidelines() {
+            const inputEl = document.getElementById('guideline-search-input');
+            if (!inputEl) return;
+            const keyword = inputEl.value.toLowerCase();
+            const filtered = guidelinesData.filter(g => g.title.toLowerCase().includes(keyword) || g.category.toLowerCase().includes(keyword) || g.point.toLowerCase().includes(keyword));
+            renderGuidelines(filtered);
+        }
+
+        function setQuickSearch(tag) {
+            const inputEl = document.getElementById('guideline-search-input');
+            if (inputEl) inputEl.value = tag;
+            filterGuidelines();
+        }
+
+        function openGuidelineModal(g) {
+            document.getElementById('modal-g-category').innerText = g.category;
+            document.getElementById('modal-g-subtitle').innerText = g.title;
+            document.getElementById('modal-g-point').innerText = g.point;
+            document.getElementById('modal-g-docs').innerText = g.docs;
+            document.getElementById('guideline-modal').classList.remove('hidden');
+        }
+        function closeGuidelineModal() { document.getElementById('guideline-modal').classList.add('hidden'); }
+
+        function renderTypeTable() {
+            const tbody = document.getElementById('type-table-body');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            supportTypes.forEach(t => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50 transition border-b border-gray-100';
+                tr.innerHTML = `
+                    <td class="py-3 px-4"><div class="w-6 h-6 rounded-lg shadow-xs" style="background-color: ${t.color}"></div></td>
+                    <td class="py-3 px-4 font-bold text-gray-900">${t.name}</td>
+                    <td class="py-3 px-4 text-xs font-mono text-gray-500">${t.id}</td>
+                    <td class="py-3 px-4 text-center space-x-2">
+                        <button type="button" onclick="editType('${t.id}')" class="text-gray-500 hover:text-blue-600"><i class="fa-solid fa-pen"></i></button>
+                        <button type="button" onclick="deleteType('${t.id}')" class="text-gray-500 hover:text-red-600"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openTypeModal(editId = null) {
+            document.getElementById('type-edit-id').value = '';
+            document.getElementById('type-modal-title').innerText = '지원 유형 추가';
+            document.getElementById('type-name-input').value = '';
+            document.getElementById('type-color-input').value = '#3b82f6';
+            document.getElementById('type-color-text').innerText = '#3b82f6';
+
+            if (editId) {
+                const t = supportTypes.find(x => x.id === editId);
+                if (t) {
+                    document.getElementById('type-edit-id').value = t.id;
+                    document.getElementById('type-modal-title').innerText = '지원 유형 수정';
+                    document.getElementById('type-name-input').value = t.name;
+                    document.getElementById('type-color-input').value = t.color;
+                    document.getElementById('type-color-text').innerText = t.color;
+                }
+            }
+            document.getElementById('type-modal').classList.remove('hidden');
+        }
+        function closeTypeModal() { document.getElementById('type-modal').classList.add('hidden'); }
+
+        function saveType() {
+            const editId = document.getElementById('type-edit-id').value;
+            const name = document.getElementById('type-name-input').value.trim();
+            const color = document.getElementById('type-color-input').value;
+
+            if (!name) {
+                alert('유형 명칭을 입력해주세요.');
+                return;
+            }
+
+            if (editId) {
+                const idx = supportTypes.findIndex(x => x.id === editId);
+                if (idx !== -1) { supportTypes[idx].name = name; supportTypes[idx].color = color; }
+            } else {
+                const newId = 'type_' + Date.now();
+                supportTypes.push({ id: newId, name, color });
+            }
+
+            localStorage.setItem('support_types', JSON.stringify(supportTypes));
+            closeTypeModal();
+            renderAll();
+        }
+
+        function editType(id) { openTypeModal(id); }
+        function deleteType(id) {
+            if (supportTypes.length <= 1) {
+                alert('최소 1개의 지원 유형은 남아있어야 합니다.');
+                return;
+            }
+            if (confirm('해당 지원 유형을 삭제하시겠습니까?')) {
+                supportTypes = supportTypes.filter(x => x.id !== id);
+                localStorage.setItem('support_types', JSON.stringify(supportTypes));
+                renderAll();
+            }
+        }
+
+        function handlePasswordChange() {
+            const inputEl = document.getElementById('new-password-input');
+            if (!inputEl) return;
+            const newPw = inputEl.value.trim();
+            if (newPw) {
+                appPassword = newPw;
+                localStorage.setItem('app_password', newPw);
+                alert('접속 비밀번호가 성공적으로 변경되었습니다.');
+                inputEl.value = '';
+            } else {
+                alert('변경할 비밀번호를 입력해주세요.');
+            }
+        }
+    </script>
+</body>
+</html>
